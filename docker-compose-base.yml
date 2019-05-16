@@ -1,0 +1,21 @@
+
+version: '2'
+
+services:
+  docker_fivem:
+    image: fivem_base:latest
+    build:
+      context: ./fivem_base
+      dockerfile: Dockerfile
+    ports:
+      - 30120:30120
+      - 30120:30120/udp
+    links:
+      - "couch:couch"
+  couch:
+    image: couchdb
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=DoChangeThisSomeTime
+    volumes: 
+      - ./home/fivem/db:/usr/local/var/lib/couchdb

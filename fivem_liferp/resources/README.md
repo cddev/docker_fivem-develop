@@ -1,0 +1,1 @@
+resources/ will be merge with the cached resources folder (_resources/) and merged with user mounted mods.

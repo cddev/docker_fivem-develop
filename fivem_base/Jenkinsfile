@@ -1,0 +1,83 @@
+pipeline {
+    agent {
+        label 'docker'
+    }
+    options {
+        timestamps()
+        gitLabConnection('GitLab')
+        buildDiscarder(logRotator(numToKeepStr:'25'))
+    }
+    triggers {
+        gitlab(triggerOnPush: true, triggerOnMergeRequest: true, branchFilterType: 'All')
+    }
+    environment {
+        RELEASE_VERSION = 0.90
+        GITLAB_REGISTRY = 'wearingstorm/docker_fivem'
+        GITLAB_URL = 'https://registry.gitlab.com/wearingstorm/docker_fivem'
+        DOCKER_URL = 'https://registry.hub.docker.com'
+        FIVEM_DOWNLOAD_URL = 'http://updater.fivereborn.com/client/cfx-server.7z'
+        WORKDIR = './fivem_base'
+    }
+
+    stages {
+        stage('Installing fivem') {
+            steps {
+                echo 'Downloading and installing fivem server'
+
+                sh 'printenv'
+
+                sh '''
+                  cd "${WORKDIR}"
+                  curl -O ${FIVEM_DOWNLOAD_URL}
+                  mkdir fivem-server && mkdir resources
+
+                  7za x cfx-server.7z && mv cfx-server/* fivem-server
+                  cp -r server-config/* fivem-server/ && mv fivem-server/resources/* resources
+                  rm cfx-server.7z && rm -rf cfx-server
+
+                  chmod u+x entry.sh
+                '''
+            }
+       }
+        stage('Build image') {
+            steps {
+                script {
+                    echo 'Building FiveM docker image for branch ${BRANCH_NAME}'
+
+                    if(BRANCH_NAME == 'master'){
+                        docker.withRegistry(DOCKER_URL, 'docker-registry') {
+                            def app = docker.build('wearingstorm/fivem', "${WORKDIR}")
+                            app.push("release-${RELEASE_VERSION}.${BUILD_NUMBER}")
+                            app.push("release-${RELEASE_VERSION}")
+                            app.push("latest")
+                        }
+                    }
+                    else if(BRANCH_NAME == 'develop'){
+                        docker.withRegistry(DOCKER_URL, 'docker-registry') {
+                            def app = docker.build('wearingstorm/fivem', "${WORKDIR}")
+                            app.push("development")
+                        }
+                    }
+                    else {
+                        docker.withRegistry(GITLAB_URL, 'gitlab-registry') {
+                            def app = docker.build('${GITLAB_REGISTRY}/${BRANCH_NAME}', "${WORKDIR}")
+                            app.push("${BUILD_NUMBER}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        success {
+            slackSend channel: '#builds',
+                      color: 'good',
+                      message: "The pipeline ${currentBuild.fullDisplayName} completed successfully. (<${env.BUILD_URL}|Open>)"
+        }
+        failure {
+            slackSend channel: '#builds',
+                      color: '',
+                      message: "The pipeline ${currentBuild.fullDisplayName} failed. (<${env.BUILD_URL}|Open>)"
+        }
+    }
+}

@@ -1,0 +1,83 @@
+pipeline {
+    agent {
+        label {
+            label 'docker'
+            customWorkspace './fivem_liferp/'
+        }
+    }
+    options {
+        timestamps()
+        gitLabConnection('GitLab')
+        buildDiscarder(logRotator(numToKeepStr:'25'))
+    }
+    triggers {
+        gitlab(triggerOnPush: true, triggerOnMergeRequest: true, branchFilterType: 'All')
+    }
+    environment {
+        RELEASE_VERSION = 0.90
+        GITLAB_REGISTRY = 'wearingstorm/docker_fivem'
+        GITLAB_URL = 'https://registry.gitlab.com/wearingstorm/docker_fivem'
+        DOCKER_URL = 'https://registry.hub.docker.com'
+        LIFERP_DOWNLOAD_URL = 'https://github.com/ldlac/La_LifeRP/archive/master.zip'
+        WORKDIR = './fivem_liferp'
+    }
+
+    stages {
+       stage('Preparing mods') {
+           steps {
+               echo 'Downloading and installing server mods'
+
+               sh 'printenv'
+
+               sh '''
+                 cd "${WORKDIR}"
+                 wget -nv ${LIFERP_DOWNLOAD_URL} && 7za x master.zip && rsync -abviuzP La_LifeRP-master/resources/ resources
+                 rm master.zip && rm -rf La_LifeRP-master
+               '''
+            }
+        }
+        stage('Build image') {
+            steps {
+                script {
+                    echo "Building FiveM docker image for branch ${BRANCH_NAME}"
+
+                    if(BRANCH_NAME == 'master'){
+                        docker.withRegistry(DOCKER_URL, 'docker-registry') {
+                            def app = docker.build("wearingstorm/fivem_liferp", "${WORKDIR}")
+                            app.push("release-${RELEASE_VERSION}.${BUILD_NUMBER}")
+                            app.push("release-${RELEASE_VERSION}")
+                            app.push("latest")
+                        }
+                    }
+                    else if(BRANCH_NAME == 'develop'){
+                        docker.withRegistry(DOCKER_URL, 'docker-registry') {
+                            def app = docker.build("wearingstorm/fivem_liferp", "${WORKDIR}")
+                            app.push("development")
+                        }
+                    }
+                    else {
+                        docker.withRegistry(GITLAB_URL, 'gitlab-registry') {
+                            def app = docker.build('${GITLAB_REGISTRY}/${BRANCH_NAME}_liferp', "${WORKDIR}")
+                            app.push("${BUILD_NUMBER}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            deleteDir()
+        }
+        success {
+            slackSend channel: '#builds',
+                      color: 'good',
+                      message: "The pipeline ${currentBuild.fullDisplayName} completed successfully. (<${env.BUILD_URL}|Open>)"
+        }
+        failure {
+            slackSend channel: '#builds',
+                      color: '',
+                      message: "The pipeline ${currentBuild.fullDisplayName} failed. (<${env.BUILD_URL}|Open>)"
+        }
+    }
+}

@@ -1,0 +1,2 @@
+server-config/ will be merge with the root fivem server folder.
+**DO NOT** put resources her as they will be overwritten, they should be put in the resources/ folder so they are merge correctly with user mounted mods.
